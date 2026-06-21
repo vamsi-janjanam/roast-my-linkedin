@@ -1,0 +1,67 @@
+@import 'tailwindcss';
+
+/* Design tokens from the spec's UI direction. Dark, irreverent, editorial. */
+@theme {
+  --color-ink: #0d0d0d;
+  --color-paper: #f4f1ea;
+  --color-flame: #ff5c1a;
+  --color-cool: #3b82f6;
+
+  --font-display: 'Syne', sans-serif;
+  --font-sans: 'Space Grotesk', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-ink);
+  color: #ece9e0;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Fire / roasting loading animation */
+@keyframes flicker {
+  0%,
+  100% {
+    transform: scale(1) translateY(0) rotate(-2deg);
+    opacity: 1;
+  }
+  25% {
+    transform: scale(1.15) translateY(-4px) rotate(2deg);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(0.95) translateY(2px) rotate(-1deg);
+    opacity: 1;
+  }
+  75% {
+    transform: scale(1.1) translateY(-2px) rotate(1deg);
+    opacity: 0.9;
+  }
+}
+
+.animate-flicker {
+  animation: flicker 1.2s ease-in-out infinite;
+  display: inline-block;
+}
+
+@keyframes flame-pulse {
+  0%,
+  100% {
+    text-shadow: 0 0 8px rgba(255, 92, 26, 0.4);
+  }
+  50% {
+    text-shadow: 0 0 24px rgba(255, 92, 26, 0.9);
+  }
+}
+
+.animate-flame-pulse {
+  animation: flame-pulse 1.5s ease-in-out infinite;
+}
