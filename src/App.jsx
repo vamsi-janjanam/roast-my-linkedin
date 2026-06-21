@@ -1,11 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
 
-const INTENSITIES = [
-  { value: 'gentle', label: 'Gentle', flames: '🔥' },
-  { value: 'medium', label: 'Medium', flames: '🔥🔥' },
-  { value: 'savage', label: 'Savage', flames: '🔥🔥🔥' },
-]
-
 const SECTION_ORDER = [
   'headline',
   'about',
@@ -16,52 +10,17 @@ const SECTION_ORDER = [
 ]
 
 const LOADING_MESSAGES = [
-  'Counting your buzzwords…',
-  'Judging your photo…',
+  'Pulling your profile…',
+  'Feeding it to the ATS…',
+  'Counting missing keywords…',
+  'Looking for an actual metric…',
+  'Laughing at "results-driven"…',
   'Consulting the rejection pile…',
-  'Translating corporate jargon…',
-  'Measuring synergy levels…',
 ]
 
-const titleCase = (s) =>
-  s ? s.charAt(0).toUpperCase() + s.slice(1) : ''
+const titleCase = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '')
 
-const countWords = (text) =>
-  text.trim() ? text.trim().split(/\s+/).length : 0
-
-// ---------------------------------------------------------------------------
-// IntensitySelector
-// ---------------------------------------------------------------------------
-function IntensitySelector({ value, onChange, disabled }) {
-  return (
-    <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
-      {INTENSITIES.map((opt) => {
-        const active = value === opt.value
-        return (
-          <button
-            key={opt.value}
-            type="button"
-            disabled={disabled}
-            onClick={() => onChange(opt.value)}
-            className={[
-              'flex-1 rounded-xl border px-4 py-3 text-left font-sans transition',
-              'disabled:cursor-not-allowed disabled:opacity-60',
-              active
-                ? 'border-flame bg-flame/15 text-flame shadow-[0_0_0_1px] shadow-flame'
-                : 'border-white/15 bg-white/5 text-paper hover:border-flame/50 hover:bg-white/10',
-            ].join(' ')}
-            aria-pressed={active}
-          >
-            <span className="block text-lg leading-none">{opt.flames}</span>
-            <span className="mt-1 block text-sm font-semibold uppercase tracking-wide">
-              {opt.label}
-            </span>
-          </button>
-        )
-      })}
-    </div>
-  )
-}
+const countWords = (t) => (t.trim() ? t.trim().split(/\s+/).length : 0)
 
 // ---------------------------------------------------------------------------
 // LoadingState
@@ -136,11 +95,13 @@ function RoastCard({ text }) {
 function ScoreMeter({ score, label }) {
   const safe = Math.max(0, Math.min(100, Number(score) || 0))
   const band =
-    safe < 40
+    safe < 31
       ? { color: '#FF5C1A', text: 'text-flame' }
-      : safe < 70
-        ? { color: '#FBBF24', text: 'text-amber-400' }
-        : { color: '#3B82F6', text: 'text-cool' }
+      : safe < 56
+        ? { color: '#FB923C', text: 'text-orange-400' }
+        : safe < 75
+          ? { color: '#FBBF24', text: 'text-amber-400' }
+          : { color: '#3B82F6', text: 'text-cool' }
 
   const radius = 52
   const circ = 2 * Math.PI * radius
@@ -150,14 +111,7 @@ function ScoreMeter({ score, label }) {
     <div className="flex items-center gap-5 rounded-2xl border border-white/10 bg-white/5 p-6">
       <div className="relative h-32 w-32 shrink-0">
         <svg viewBox="0 0 128 128" className="h-32 w-32 -rotate-90">
-          <circle
-            cx="64"
-            cy="64"
-            r={radius}
-            fill="none"
-            stroke="rgba(255,255,255,0.1)"
-            strokeWidth="10"
-          />
+          <circle cx="64" cy="64" r={radius} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="10" />
           <circle
             cx="64"
             cy="64"
@@ -178,36 +132,36 @@ function ScoreMeter({ score, label }) {
       </div>
       <div>
         <p className="font-mono text-xs uppercase tracking-widest text-paper/50">
-          Verdict
+          Recruiter Score
         </p>
-        <p className={`font-display text-xl ${band.text}`}>
-          {label || '—'}
-        </p>
+        <p className={`font-display text-xl ${band.text}`}>{label || '—'}</p>
       </div>
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// BuzzwordBadges
+// KeywordBadges — reused for buzzwords (bad) and missing keywords (gap)
 // ---------------------------------------------------------------------------
-function BuzzwordBadges({ words }) {
+function KeywordBadges({ title, words, empty, tone }) {
   const list = words ?? []
+  const styles =
+    tone === 'cool'
+      ? 'border-cool/50 bg-cool/15 text-cool'
+      : 'border-flame/50 bg-flame/15 text-flame'
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
       <p className="mb-3 font-mono text-xs uppercase tracking-widest text-paper/50">
-        Buzzwords detected ({list.length})
+        {title} ({list.length})
       </p>
       {list.length === 0 ? (
-        <p className="text-sm text-paper/60">
-          No buzzwords detected — rare.
-        </p>
+        <p className="text-sm text-paper/60">{empty}</p>
       ) : (
         <div className="flex flex-wrap gap-2">
           {list.map((w, i) => (
             <span
               key={`${w}-${i}`}
-              className="rounded-full border border-flame/50 bg-flame/15 px-3 py-1 font-mono text-xs text-flame"
+              className={`rounded-full border px-3 py-1 font-mono text-xs ${styles}`}
             >
               {w}
             </span>
@@ -280,38 +234,53 @@ function ShareBar({ result }) {
     setTimeout(() => setCopied(''), 1600)
   }
 
-  const copyRoast = async () => {
+  const copyText = async (text, which) => {
     try {
-      await navigator.clipboard.writeText(result.overall_roast || '')
-      flash('roast')
+      await navigator.clipboard.writeText(text)
+      flash(which)
     } catch {
-      /* ignore clipboard failures */
+      // Fallback for non-secure contexts / older browsers.
+      try {
+        const ta = document.createElement('textarea')
+        ta.value = text
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+        flash(which)
+      } catch {
+        /* give up silently */
+      }
     }
   }
 
-  const copyTips = async () => {
+  const copyRoast = () => copyText(result.overall_roast || '', 'roast')
+
+  const copyTips = () => {
     const lines = []
+    const flags = result.red_flags ?? []
+    if (flags.length) {
+      lines.push('Recruiter red flags:')
+      flags.forEach((k) => lines.push(`  - ${k}`))
+      lines.push('')
+    }
     SECTION_ORDER.forEach((key) => {
-      const section = result.sections?.[key]
-      const tips = section?.tips ?? []
+      const tips = result.sections?.[key]?.tips ?? []
       if (tips.length) {
         lines.push(`${titleCase(key)}:`)
         tips.forEach((t) => lines.push(`  - ${t}`))
         lines.push('')
       }
     })
-    try {
-      await navigator.clipboard.writeText(lines.join('\n').trim())
-      flash('tips')
-    } catch {
-      /* ignore clipboard failures */
-    }
+    copyText(lines.join('\n').trim(), 'tips')
   }
 
   const shareUrl = useMemo(() => {
-    const text = `I got my LinkedIn profile roasted 🔥 — score: ${
+    const text = `A recruiter just dead-brutally roasted my LinkedIn 🔥 — recruiter score: ${
       result.score ?? 0
-    }/100. "${result.score_label ?? ''}." Try yours.`
+    }/100. "${result.score_label ?? ''}." Find out what recruiters really think.`
     return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`
   }, [result])
 
@@ -324,7 +293,7 @@ function ShareBar({ result }) {
         {copied === 'roast' ? 'Copied!' : 'Copy Roast'}
       </button>
       <button type="button" onClick={copyTips} className={btn}>
-        {copied === 'tips' ? 'Copied!' : 'Copy Tips'}
+        {copied === 'tips' ? 'Copied!' : 'Copy Fixes'}
       </button>
       <a
         href={shareUrl}
@@ -348,8 +317,20 @@ function Results({ result, onReset }) {
 
       <div className="grid gap-6 md:grid-cols-2">
         <ScoreMeter score={result.score} label={result.score_label} />
-        <BuzzwordBadges words={result.buzzwords_found} />
+        <KeywordBadges
+          title="Dead-weight buzzwords"
+          words={result.buzzwords_found}
+          empty="No fluff buzzwords — rare."
+          tone="flame"
+        />
       </div>
+
+      <KeywordBadges
+        title="Recruiter red flags"
+        words={result.red_flags}
+        empty="No glaring red flags. Suspicious."
+        tone="cool"
+      />
 
       <SectionBreakdown sections={result.sections} />
 
@@ -373,23 +354,22 @@ function Results({ result, onReset }) {
 // ---------------------------------------------------------------------------
 export default function App() {
   const [profileText, setProfileText] = useState('')
-  const [intensity, setIntensity] = useState('medium')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
 
   const words = countWords(profileText)
-  const tooShort = words > 0 && words < 100
+  const tooShort = words > 0 && words < 40
 
   const handleRoast = async () => {
-    if (loading) return
+    if (loading || words < 40) return
     setError('')
     setLoading(true)
     try {
       const res = await fetch('/api/roast', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profileText, intensity }),
+        body: JSON.stringify({ profileText: profileText.trim() }),
       })
 
       let data = null
@@ -400,9 +380,7 @@ export default function App() {
       }
 
       if (!res.ok) {
-        setError(
-          data?.error?.message || 'Something went wrong. Try again.',
-        )
+        setError(data?.error?.message || 'Something went wrong. Try again.')
         return
       }
 
@@ -424,12 +402,18 @@ export default function App() {
       <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 sm:py-14">
         {/* Header / hero */}
         <header className="mb-10 text-center sm:text-left">
-          <h1 className="font-display text-4xl font-bold tracking-tight text-paper sm:text-6xl">
-            LinkedIn <span className="text-flame">Roaster</span> 🔥
+          <span className="inline-block rounded-full border border-flame/60 bg-flame/10 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.25em] text-flame">
+            Dead Brutal Mode 🔥
+          </span>
+          <h1 className="mt-3 font-display text-4xl font-bold tracking-tight text-paper sm:text-6xl">
+            LinkedIn <span className="text-flame">Recruiter Roaster</span>
           </h1>
           <p className="mt-3 font-sans text-base text-paper/70 sm:text-lg">
-            We read your LinkedIn so you don&apos;t have to pretend it&apos;s
-            good.
+            Paste your LinkedIn text. Get the brutal first impression a recruiter
+            forms in 10 seconds — no mercy, just fixes.
+          </p>
+          <p className="mt-1 font-mono text-xs text-paper/40">
+            Tip: install the browser extension to roast profiles in-page instead.
           </p>
         </header>
 
@@ -452,17 +436,15 @@ export default function App() {
                 id="profile"
                 value={profileText}
                 onChange={(e) => setProfileText(e.target.value)}
-                placeholder="Paste your About + Experience + Skills here…"
+                placeholder="Paste your headline, About, Experience and Skills here…"
                 rows={12}
                 className="w-full resize-y rounded-2xl border border-white/15 bg-white/5 p-4 font-mono text-sm text-paper placeholder:text-paper/30 focus:border-flame focus:outline-none"
               />
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <span
-                  className={tooShort ? 'text-flame' : 'text-paper/50'}
-                >
+                <span className={tooShort ? 'text-flame' : 'text-paper/50'}>
                   {tooShort
-                    ? 'Needs more — paste at least your About + Experience (100+ words).'
-                    : ' '}
+                    ? 'Needs more — paste at least your headline + About + Experience.'
+                    : ' '}
                 </span>
                 <span className="font-mono text-paper/50">
                   {words} word{words === 1 ? '' : 's'}
@@ -470,24 +452,13 @@ export default function App() {
               </div>
             </div>
 
-            <div>
-              <p className="mb-2 font-mono text-xs uppercase tracking-widest text-paper/50">
-                Intensity
-              </p>
-              <IntensitySelector
-                value={intensity}
-                onChange={setIntensity}
-                disabled={loading}
-              />
-            </div>
-
             <button
               type="button"
               onClick={handleRoast}
-              disabled={loading || words === 0}
+              disabled={loading || words < 40}
               className="rounded-2xl border border-flame bg-flame px-6 py-4 font-display text-xl font-bold text-ink transition hover:bg-flame/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Roast Me 🔥
+              Roast My ATS 🔥
             </button>
           </main>
         )}

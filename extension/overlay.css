@@ -1,0 +1,223 @@
+/* LinkedIn Recruiter Roaster — red-pen markup overlay.
+   Everything scoped under #ats-roast-* / .ats-* so it never collides with LinkedIn. */
+
+:root {
+  --ats-red: #d4231a;
+  --ats-ink: #0d0d0d;
+  --ats-paper: #fffdf5;
+  --ats-hand: 'Bradley Hand', 'Marker Felt', 'Segoe Print', 'Comic Sans MS', cursive;
+}
+
+/* ---- floating trigger button (marker tag) ------------------------------- */
+.ats-roast-fab {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 2147483600;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 14px;
+  background: var(--ats-red);
+  color: #fff;
+  font-family: var(--ats-hand);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transform: rotate(-2deg);
+  box-shadow: 3px 4px 0 rgba(0, 0, 0, 0.35);
+  transition: transform 0.12s ease;
+}
+.ats-roast-fab:hover { transform: rotate(-2deg) translateY(-2px); }
+.ats-roast-fab.is-loading { opacity: 0.75; cursor: progress; }
+
+/* ---- full-document annotation layer ------------------------------------- */
+#ats-roast-layer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 2147483000;
+  pointer-events: none;
+  overflow: visible;
+}
+.ats-roast-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+.ats-stroke {
+  fill: none;
+  stroke: var(--ats-red);
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ats-scribble {
+  stroke-width: 2;
+  opacity: 0.85;
+}
+
+/* handwritten burns + scattered ?! doodles */
+.ats-hand-callout {
+  --rot: 0deg;
+  position: absolute;
+  pointer-events: none;
+  color: var(--ats-red);
+  font-family: var(--ats-hand);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+  transform-origin: left center;
+  animation: ats-ink-in 340ms cubic-bezier(0.2, 0.9, 0.3, 1.25) both;
+}
+.ats-hand-doodle {
+  --rot: 0deg;
+  position: absolute;
+  pointer-events: none;
+  color: var(--ats-red);
+  font-family: var(--ats-hand);
+  font-size: 32px;
+  font-weight: 700;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+  animation: ats-doodle-pop 300ms cubic-bezier(0.2, 1.3, 0.4, 1.2) both;
+}
+
+@keyframes ats-ink-in {
+  0% { opacity: 0; transform: rotate(var(--rot)) scale(0.7); }
+  60% { opacity: 1; transform: rotate(var(--rot)) scale(1.06); }
+  100% { opacity: 1; transform: rotate(var(--rot)) scale(1); }
+}
+@keyframes ats-doodle-pop {
+  0% { opacity: 0; transform: rotate(var(--rot)) scale(0); }
+  70% { opacity: 1; transform: rotate(var(--rot)) scale(1.25); }
+  100% { opacity: 1; transform: rotate(var(--rot)) scale(1); }
+}
+@keyframes ats-note-in {
+  0% { opacity: 0; transform: translateY(18px) rotate(var(--rot)); }
+  100% { opacity: 1; transform: translateY(0) rotate(var(--rot)); }
+}
+
+/* ---- recruiter's-notes card (legible summary) --------------------------- */
+.ats-note {
+  position: fixed;
+  right: 22px;
+  bottom: 84px;
+  z-index: 2147483600;
+  width: 320px;
+  max-height: 72vh;
+  overflow-y: auto;
+  padding: 16px 18px;
+  background: var(--ats-paper);
+  border: 2px solid var(--ats-red);
+  border-radius: 4px;
+  color: #1f1f1f;
+  font-family: system-ui, 'Segoe UI', sans-serif;
+  box-shadow: 4px 6px 0 rgba(0, 0, 0, 0.18);
+  --rot: -0.5deg;
+  animation: ats-note-in 360ms ease both;
+}
+.ats-note-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 2px dashed rgba(212, 35, 26, 0.5);
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+}
+.ats-note-title {
+  font-family: var(--ats-hand);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ats-red);
+}
+.ats-note-close {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 16px;
+  cursor: pointer;
+}
+.ats-note-close:hover { color: var(--ats-red); }
+
+.ats-note-score {
+  font-family: var(--ats-hand);
+  font-size: 46px;
+  font-weight: 700;
+  line-height: 1;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.ats-note-score small { font-size: 16px; color: #999; }
+.ats-note-label {
+  font-family: var(--ats-hand);
+  font-size: 20px;
+  font-weight: 700;
+}
+.band-bad { color: var(--ats-red); }
+.band-warn { color: #e07b00; }
+.band-mid { color: #b59000; }
+.band-good { color: #1a7f37; }
+
+.ats-note-verdict {
+  font-size: 13.5px;
+  line-height: 1.5;
+  margin: 0 0 14px;
+  color: #2b2b2b;
+}
+.ats-note-block { margin-bottom: 12px; }
+.ats-note-block h4 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #777;
+}
+.ats-note-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ats-note-chip {
+  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1.5px solid;
+}
+.ats-note-chip.chip-flag {
+  color: var(--ats-red);
+  border-color: rgba(212, 35, 26, 0.55);
+  background: rgba(212, 35, 26, 0.08);
+}
+.ats-note-chip.chip-buzz {
+  color: #8a5a00;
+  border-color: rgba(176, 122, 0, 0.5);
+  background: rgba(176, 122, 0, 0.08);
+}
+.ats-note-empty { color: #aaa; font-size: 13px; }
+
+.ats-note-clear {
+  width: 100%;
+  margin-top: 4px;
+  padding: 9px;
+  border: 2px solid var(--ats-red);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ats-red);
+  font-family: var(--ats-hand);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ats-note-clear:hover { background: rgba(212, 35, 26, 0.08); }
+
+/* Respect reduced-motion: show everything instantly. */
+@media (prefers-reduced-motion: reduce) {
+  .ats-hand-callout,
+  .ats-hand-doodle,
+  .ats-note {
+    animation: none !important;
+  }
+}

@@ -5,14 +5,13 @@ import cors from 'cors';
 import Anthropic from '@anthropic-ai/sdk';
 
 const app = express();
-app.use(cors());
+app.use(cors()); // open CORS so the browser extension (linkedin.com origin) can call us
 app.use(express.json({ limit: '1mb' }));
 
 const PORT = process.env.PORT || 8787;
 
-// The SDK reads ANTHROPIC_API_KEY from env automatically. Construct the client
-// once. If the key is missing we still start the server, but /api/roast returns
-// a 500 with a clear error (handled in the route below).
+// The SDK reads ANTHROPIC_API_KEY from env automatically. The key stays
+// server-side and is never sent to the browser / extension.
 const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);
 const client = new Anthropic();
 
@@ -34,9 +33,10 @@ const ROAST_SCHEMA = {
   type: 'object',
   properties: {
     overall_roast: { type: 'string' },
-    score: { type: 'integer' },
+    score: { type: 'integer' }, // recruiter callback-likelihood 0-100
     score_label: { type: 'string' },
     buzzwords_found: { type: 'array', items: { type: 'string' } },
+    red_flags: { type: 'array', items: { type: 'string' } },
     sections: {
       type: 'object',
       properties: {
@@ -51,25 +51,41 @@ const ROAST_SCHEMA = {
       additionalProperties: false,
     },
   },
-  required: ['overall_roast', 'score', 'score_label', 'buzzwords_found', 'sections'],
+  required: [
+    'overall_roast',
+    'score',
+    'score_label',
+    'buzzwords_found',
+    'red_flags',
+    'sections',
+  ],
   additionalProperties: false,
 };
 
-// ---- System prompt -----------------------------------------------------------
-const TONE = {
-  gentle: 'friendly ribbing, constructive and warm',
-  medium: 'sharp, sarcastic, brutally honest',
-  savage:
-    'no mercy, Gordon Ramsay meets LinkedIn — still useful, never slurs or protected-class insults',
-};
+// ---- System prompt — single "dead brutal" recruiter mode ---------------------
+const SYSTEM_PROMPT = `You are a blunt, battle-hardened senior tech recruiter doing a 10-second scan of a LinkedIn profile — the brutal first impression a real recruiter forms before deciding whether to reach out or move on. This is DEAD BRUTAL mode, the only mode. Roast the profile the way a recruiter actually reacts: cringe at clichés, eye-roll at buzzwords, side-eye vague titles, and call out every missed chance to show real impact. Be savagely funny but genuinely useful and specific — cite the profile's actual words.
 
-function SYSTEM_PROMPT_FOR(intensity) {
-  return `You are a brutally honest LinkedIn profile critic. Roast the provided profile and provide genuine, specific improvement advice. Cite actual text from the profile; never be vague. Detect clichés/buzzwords (e.g. 'passionate about', 'results-driven', 'synergy', 'leverage', 'thought leader', 'seasoned', 'dynamic', 'self-starter'). Score the profile 0–100 (the score must be an integer between 0 and 100) and give a snarky score_label using these bands: 0–30 'Recruiter repellent', 31–55 'Safely ignored', 56–74 'Almost hireable', 75–89 'Not bad, overachiever', 90–100 'Who are you and why are you here?'. For any section not present in the input, set its roast to a short note that it wasn't provided and give tips on adding it. Return tips as 2–3 concrete, actionable items per section.
+The input is the visible text scraped from a LinkedIn profile page. Ignore page chrome (nav, ads, "People you may know", "Who viewed your profile") and judge only the person.
 
-Tone for this roast: ${TONE[intensity]}.
+React like a recruiter to:
+- Headline clichés and identity crises ("Developer | Writer | Dreamer" → pick a lane).
+- Buzzword soup ("passionate about", "results-driven", "change enthusiast", "thought leader") with no substance behind it.
+- About sections that list adjectives instead of telling a story or showing outcomes.
+- Experience that lists responsibilities but zero quantified impact (no numbers, %, scale, results).
+- "Still learning" / certificate-collecting with nothing actually built to show for it.
+- Featured / Activity that's noise, hot takes, or cringe instead of wins and proof of work.
+- Desperation signals (#OpenToWork spray, "looking for opportunities") instead of real networking.
+- Vague or empty skills and recommendations a recruiter can't trust.
+
+Return:
+- overall_roast: a brutal, funny recruiter's-eye verdict on this profile.
+- score: an integer 0-100 = how likely a recruiter is to actually reach out (callback likelihood).
+- score_label: a snarky band — 0-30 'Instant skip', 31-55 'Recruiter ghosts you', 56-74 'Maybe, on a slow day', 75-89 'Worth a message', 90-100 'Recruiters are fighting over you (suspicious)'.
+- red_flags: specific things that make a recruiter hesitate or bounce (vague title, no impact, desperation vibes, cringe posts, certificate-collecting, etc.).
+- buzzwords_found: empty cliché phrases in the profile a recruiter is tired of seeing.
+- sections: for headline, about, experience, skills, education, recommendations — each gets a SHORT, punchy, hand-scrawled recruiter burn like a red-pen margin note ("BUZZWORD SOUP!", "PICK A LANE!", "SHOW IMPACT, NOT VIEWS!", "CLICHE ALERT!", "STILL LEARNING? SHOW, DON'T TELL!") plus 2-3 concrete fixes. Keep each section roast to a few words — it gets scrawled onto the page. For any missing section, say so and what a recruiter reads into the gap.
 
 Return ONLY a single valid JSON object matching the required schema. No markdown code fences, no commentary before or after the JSON.`;
-}
 
 // Tolerant parse: structured outputs should return clean JSON, but if the model
 // ever wraps it in ```fences``` or adds stray prose, recover the JSON object.
@@ -94,39 +110,26 @@ app.get('/api/health', (req, res) => {
 app.post('/api/roast', async (req, res) => {
   if (!hasApiKey) {
     return res.status(500).json({
-      error: {
-        code: 'missing_api_key',
-        message: 'Server is missing ANTHROPIC_API_KEY.',
-      },
+      error: { code: 'missing_api_key', message: 'Server is missing ANTHROPIC_API_KEY.' },
     });
   }
 
   const { profileText } = req.body ?? {};
-  let { intensity } = req.body ?? {};
 
-  // Validate profileText.
   if (typeof profileText !== 'string' || profileText.trim().length === 0) {
     return res.status(400).json({
-      error: {
-        code: 'input_too_short',
-        message: 'We need more to work with. Paste at least your About + Experience.',
-      },
+      error: { code: 'input_too_short', message: "Couldn't read any profile text to roast." },
     });
   }
 
   const wordCount = profileText.trim().split(/\s+/).length;
-  if (wordCount < 100) {
+  if (wordCount < 40) {
     return res.status(400).json({
       error: {
         code: 'input_too_short',
-        message: 'We need more to work with. Paste at least your About + Experience.',
+        message: 'Not enough profile content to roast. Open a fuller profile and try again.',
       },
     });
-  }
-
-  // Coerce intensity to a valid value; default to medium.
-  if (intensity !== 'gentle' && intensity !== 'medium' && intensity !== 'savage') {
-    intensity = 'medium';
   }
 
   try {
@@ -135,17 +138,13 @@ app.post('/api/roast', async (req, res) => {
         model: 'claude-sonnet-4-6',
         max_tokens: 4096,
         thinking: { type: 'disabled' }, // keep latency low; spec wants <10s time-to-roast
-        system: SYSTEM_PROMPT_FOR(intensity),
-        messages: [{ role: 'user', content: profileText }],
-        output_config: {
-          format: { type: 'json_schema', schema: ROAST_SCHEMA },
-        },
+        system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: profileText.slice(0, 20000) }],
+        output_config: { format: { type: 'json_schema', schema: ROAST_SCHEMA } },
       },
       { timeout: 60000 },
     );
 
-    // With output_config.format, the first text block is valid JSON; parseRoastJSON
-    // also recovers if the model ever wraps it in fences or stray prose.
     const textBlock = response.content.find((b) => b.type === 'text');
     if (!textBlock) throw new Error('Model returned no text content');
     const data = parseRoastJSON(textBlock.text);
@@ -160,25 +159,19 @@ app.post('/api/roast', async (req, res) => {
 
     if (isTimeout) {
       return res.status(504).json({
-        error: {
-          code: 'api_timeout',
-          message: 'Claude got tired of reading. Try again.',
-        },
+        error: { code: 'api_timeout', message: 'Claude got tired of reading. Try again.' },
       });
     }
 
     console.error('Roast request failed:', err);
     return res.status(502).json({
-      error: {
-        code: 'api_error',
-        message: 'Something went wrong roasting your profile. Try again.',
-      },
+      error: { code: 'api_error', message: 'Something went wrong roasting your profile. Try again.' },
     });
   }
 });
 
 // ---- Production static serving ----------------------------------------------
-// If a dist/ build exists, serve it so `npm run build && npm start` runs the
+// If a dist/ build exists, serve the web-app fallback so `npm start` runs the
 // whole app from one process.
 if (fs.existsSync('dist')) {
   app.use(express.static('dist'));
@@ -188,5 +181,5 @@ if (fs.existsSync('dist')) {
 }
 
 app.listen(PORT, () => {
-  console.log(`LinkedIn Roaster server listening on http://localhost:${PORT}`);
+  console.log(`LinkedIn ATS Roaster server listening on http://localhost:${PORT}`);
 });

@@ -1,34 +1,59 @@
-# LinkedIn Roaster 🔥
+# LinkedIn Recruiter Roaster 🔥
 
-> _We read your LinkedIn so you don't have to pretend it's good._
+> _The brutal first impression a recruiter forms in 10 seconds — scrawled onto the profile._
 
-Paste your LinkedIn profile text, pick a roast intensity, and get a brutally honest
-(but genuinely useful) critique powered by Claude — complete with a section-by-section
-breakdown, actionable tips, buzzword detection, and a snarky profile score.
+A browser extension that marks up a live LinkedIn profile in **red pen, like a recruiter
+who's seen it all**: handwritten burns, arrows pointing at the exact problem, circled
+headings, scratch-outs over the buzzword soup, and a sticky "recruiter's notes" card.
+Because it reads the profile straight from the page you're already viewing, there's
+**no scraping API, no LinkedIn OAuth, no paid lookups** — and it works on any profile
+you can see while logged in.
+
+A small Express server holds the Anthropic key and does the Claude call; the extension
+(and an optional paste-text web app) talk to it.
+
+There is exactly **one mode: Dead Brutal.**
+
+## How it works
+
+```
+LinkedIn profile page
+        │  (extension reads the visible DOM)
+        ▼
+Express proxy  ──►  Claude (claude-sonnet-4-6)  ──►  structured recruiter roast
+        │
+        ▼
+Red-pen markup (callouts, arrows, scribbles) + notes card painted onto the page
+```
+
+The Anthropic key lives only in the server's environment — it never reaches the
+browser.
 
 ## Features
 
-- **Paste-text input** with a live word count and a soft warning under 100 words.
-- **Three roast intensities** — 🔥 Gentle / 🔥🔥 Medium / 🔥🔥🔥 Savage — that adjust Claude's tone.
-- **Structured roast output**:
-  - A punchy overall roast.
-  - Section-by-section breakdown (headline, about, experience, skills, education, recommendations), each with a roast line and 2–3 concrete improvement tips.
-  - **Buzzword Bingo** — a tag cloud of detected clichés.
-  - **Profile score** out of 100 with a snarky label band.
-- **Share / copy** — Copy Roast, Copy Tips, and Share on X with a prefilled tweet.
-- **Dark, irreverent, editorial UI** — Tailwind v4, flame orange for roasts and cool blue for tips. Mobile-responsive.
+- **In-page red-pen markup** — a floating "Roast this profile 🔥" button on `linkedin.com/in/*`; click it and the profile gets handwritten burns, arrows pointing at each spot, circled headings, and scratch-outs over the cringe.
+- **Reads the page DOM** — no scraping service, no OAuth, no extra API keys.
+- **Recruiter's-eye & dead brutal** — every burn is the gut reaction a real recruiter has; cites the profile's actual words.
+- **Structured output**: an overall recruiter verdict, per-section margin-note burns (headline, about, experience, skills, education, recommendations), recruiter red flags, dead-weight buzzwords, and a callback-likelihood score with a snarky label.
+- **Paste-text web app** — an optional fallback at `localhost:8787` for roasting text you paste in.
 
-## Architecture
+## Repository layout
 
-| Layer | Stack | Notes |
-|-------|-------|-------|
-| Frontend | React 18 + Vite + Tailwind v4 | Single self-contained component in `src/App.jsx`. |
-| Backend | Express proxy (`server/index.js`) | Holds the Anthropic API key server-side and exposes `POST /api/roast`. |
-| AI | Claude `claude-sonnet-4-6` via `@anthropic-ai/sdk` | Structured JSON output via `output_config.format`. |
-
-The API key is **only** read by the server from an environment variable — it is never
-shipped to the browser. In development, Vite proxies `/api` to the Express server on
-port `8787`.
+```
+.
+├── server/
+│   └── index.js          # Express proxy + Claude integration (POST /api/roast)
+├── extension/            # Chrome/Edge extension (Manifest V3)
+│   ├── manifest.json
+│   ├── content.js        # DOM extraction + API call + on-page overlay
+│   └── overlay.css       # red-marker callout + score-panel styles
+├── src/                  # Optional paste-text web-app fallback
+│   ├── main.jsx
+│   ├── App.jsx
+│   └── index.css
+├── index.html
+└── vite.config.js
+```
 
 ## Getting started
 
@@ -37,33 +62,35 @@ port `8787`.
 - Node.js 18+
 - An [Anthropic API key](https://console.anthropic.com/)
 
-### Setup & run
+### 1. Run the backend
 
 ```bash
-# 1. Install dependencies
 npm install
 
-# 2. Configure your API key
 cp .env.example .env
-# then edit .env and set ANTHROPIC_API_KEY=sk-ant-...
+# edit .env and set ANTHROPIC_API_KEY=sk-ant-...
 
-# 3. Run the whole app with one command
-npm start
+npm start          # builds the web fallback and serves the API on :8787
 ```
 
-`npm start` builds the frontend and serves the app **and** the API from a single
-process. Open **http://localhost:8787**.
+The extension calls `http://localhost:8787` by default, so the server must be running
+for roasts to work. (For development with hot reload, use `npm run dev` instead.)
 
-### Development (hot reload)
+### 2. Load the browser extension
 
-For live-reloading while you work, use:
+1. Open `chrome://extensions` (or `edge://extensions`).
+2. Enable **Developer mode** (top-right).
+3. Click **Load unpacked** and select the `extension/` folder.
+4. Go to any `https://www.linkedin.com/in/...` profile and click the floating
+   **Roast this profile 🔥** button (bottom-right).
 
-```bash
-npm run dev
-```
+> The default backend URL is `http://localhost:8787`. If you deploy the server
+> elsewhere, change `API_BASE` at the top of `extension/content.js` and add that
+> origin to `host_permissions` in `extension/manifest.json`.
 
-This runs the Vite dev server (http://localhost:5173) and the Express proxy
-(`:8787`) together; Vite proxies `/api` requests to the server.
+### 3. (Optional) Use the paste-text web app
+
+Open **http://localhost:8787**, paste your headline/About/Experience/Skills, and roast.
 
 ## Environment variables
 
@@ -78,7 +105,7 @@ This runs the Vite dev server (http://localhost:5173) and the Express proxy
 
 **Request**
 ```json
-{ "profileText": "string", "intensity": "gentle | medium | savage" }
+{ "profileText": "string (the visible profile text)" }
 ```
 
 **Response `200`**
@@ -88,6 +115,7 @@ This runs the Vite dev server (http://localhost:5173) and the Express proxy
   "score": 0,
   "score_label": "string",
   "buzzwords_found": ["string"],
+  "red_flags": ["string"],
   "sections": {
     "headline":        { "roast": "string", "tips": ["string"] },
     "about":           { "roast": "string", "tips": ["string"] },
@@ -99,8 +127,12 @@ This runs the Vite dev server (http://localhost:5173) and the Express proxy
 }
 ```
 
+`score` is the recruiter callback-likelihood (0–100); `score_label` is its snarky band.
+Each `sections[*].roast` is a short, punchy margin-note burn; the extension scrawls it
+next to the matching section with an arrow.
+
 **Errors** — non-2xx with `{ "error": { "code": "string", "message": "string" } }`.
-Codes: `input_too_short`, `api_timeout`, `api_error`, `missing_api_key`.
+Codes: `input_too_short`, `missing_api_key`, `api_timeout`, `api_error`.
 
 ### `GET /api/health`
 
@@ -110,33 +142,29 @@ Returns `{ "ok": true }`.
 
 | Script | Description |
 |--------|-------------|
-| `npm start` | **Run the whole app** — builds the SPA and serves it + the API on `:8787`. |
-| `npm run dev` | Development mode: Vite dev server + Express proxy together (hot reload). |
-| `npm run build` | Build the production SPA into `dist/`. |
-| `npm run serve` | Serve an existing `dist/` build + the API (no rebuild). |
-| `npm run preview` | Preview the production build with Vite. |
+| `npm start` | Build the web fallback and serve it + the API on `:8787`. |
+| `npm run dev` | Development mode: Vite dev server + Express proxy (hot reload). |
+| `npm run build` | Build the web fallback into `dist/`. |
+| `npm run serve` | Serve an existing build + the API (no rebuild). |
 
-## Project structure
+## Notes & limitations
 
-```
-.
-├── index.html            # Vite entry, loads fonts
-├── vite.config.js        # Vite + Tailwind + /api dev proxy
-├── server/
-│   └── index.js          # Express proxy + Claude integration
-└── src/
-    ├── main.jsx          # React entry
-    ├── App.jsx           # The entire UI (single artifact)
-    └── index.css         # Tailwind theme tokens + animations
-```
+- **DOM extraction is heuristic.** LinkedIn's markup changes often; if a section
+  isn't found, its callout is skipped (the overall panel still appears). Selectors
+  live in `extension/content.js`.
+- **You must be able to see the profile.** The extension reads what's rendered, so
+  log in and open the full profile before roasting.
+- **Each roast is one Claude call** — costs apply per roast on your Anthropic key.
 
 ## Scope
 
-**v1 (this build):** paste-text input, three intensities, structured roast output with
-tips, buzzword detection, profile score, copy/share, mobile-responsive.
+**In scope:** in-page extension roast (DOM read), single dead-brutal ATS mode,
+structured ATS roast (missing keywords, buzzwords, section callouts, ATS score),
+paste-text web fallback.
 
-**Out of scope (v1):** LinkedIn URL scraping / OAuth, user accounts or saved history,
-PDF export, before/after editor, multi-language.
+**Out of scope:** LinkedIn OAuth / official API (can't return profile content),
+third-party scraping services, user accounts or saved history, PDF export,
+multi-language.
 
 ## License
 
