@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { countWords, scoreBand, titleCase } from './helpers'
+import { countWords, scoreBand, statusTone, titleCase } from './helpers'
 
 describe('countWords', () => {
   it('returns 0 for an empty string', () => {
@@ -52,5 +52,30 @@ describe('scoreBand', () => {
   it('bands high scores as cool (>=75)', () => {
     expect(scoreBand(75).text).toBe('text-cool')
     expect(scoreBand(100).text).toBe('text-cool')
+  })
+})
+
+describe('statusTone', () => {
+  it('maps good to cool', () => {
+    expect(statusTone('good').text).toBe('text-cool')
+    expect(statusTone('good').dot).toBe('bg-cool')
+  })
+
+  it('maps warn to amber', () => {
+    expect(statusTone('warn').text).toBe('text-amber-400')
+    expect(statusTone('warn').dot).toBe('bg-amber-400')
+  })
+
+  it('maps bad to flame', () => {
+    expect(statusTone('bad').text).toBe('text-flame')
+    expect(statusTone('bad').dot).toBe('bg-flame')
+  })
+
+  it('falls back to warn for unknown status', () => {
+    expect(statusTone('nonsense').text).toBe('text-amber-400')
+  })
+
+  it('falls back to warn for undefined status', () => {
+    expect(statusTone(undefined).text).toBe('text-amber-400')
   })
 })

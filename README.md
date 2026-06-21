@@ -120,14 +120,33 @@ Open **http://localhost:8787**, paste your headline/About/Experience/Skills, and
     "headline":        { "roast": "string", "tips": ["string"] },
     "about":           { "roast": "string", "tips": ["string"] },
     "experience":      { "roast": "string", "tips": ["string"] },
+    "projects":        { "roast": "string", "tips": ["string"] },
+    "activity":        { "roast": "string", "tips": ["string"] },
     "skills":          { "roast": "string", "tips": ["string"] },
     "education":       { "roast": "string", "tips": ["string"] },
     "recommendations": { "roast": "string", "tips": ["string"] }
+  },
+  "completeness": {
+    "percent": 0,
+    "checks": {
+      "custom_url":     { "status": "good|warn|bad", "note": "string" },
+      "location":       { "status": "good|warn|bad", "note": "string" },
+      "profile_photo":  { "status": "good|warn|bad", "note": "string" },
+      "banner":         { "status": "good|warn|bad", "note": "string" },
+      "links":          { "status": "good|warn|bad", "note": "string" },
+      "contact_info":   { "status": "good|warn|bad", "note": "string" },
+      "featured":       { "status": "good|warn|bad", "note": "string" },
+      "certifications": { "status": "good|warn|bad", "note": "string" }
+    }
   }
 }
 ```
 
 `score` is the recruiter callback-likelihood (0–100); `score_label` is its snarky band.
+`completeness.percent` is a separate 0–100 estimate of how finished the profile looks;
+each of the eight `completeness.checks` is a `good`/`warn`/`bad` status with a short note.
+When the request is plain pasted text (no extension "Profile signals" block), the
+presence-only checks come back as `warn` ("Can't see this in pasted text").
 Each `sections[*].roast` is a short, punchy margin-note burn; the extension scrawls it
 next to the matching section with an arrow.
 

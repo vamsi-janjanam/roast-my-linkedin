@@ -17,6 +17,8 @@
   const SECTIONS = {
     about: { ids: ['about'], headings: ['about'] },
     experience: { ids: ['experience'], headings: ['experience'] },
+    projects: { ids: ['projects'], headings: ['projects'] },
+    activity: { ids: ['content_collections', 'activity'], headings: ['activity'] },
     skills: { ids: ['skills'], headings: ['skills'] },
     education: { ids: ['education'], headings: ['education'] },
     recommendations: { ids: ['recommendations'], headings: ['recommendations'] },
@@ -24,9 +26,8 @@
   const EXTRA = {
     featured: { ids: ['featured'], headings: ['featured'] },
     licenses: { ids: ['licenses_and_certifications'], headings: ['licenses'] },
-    activity: { ids: ['content_collections', 'activity'], headings: ['activity'] },
   };
-  const ORDER = ['headline', 'about', 'experience', 'skills', 'education', 'recommendations'];
+  const ORDER = ['headline', 'about', 'experience', 'projects', 'activity', 'skills', 'education', 'recommendations'];
   const DOODLES = ['?!', '!?', '??', '!!'];
 
   let noteEl = null;
@@ -88,6 +89,148 @@
     return getMain().querySelector('section');
   }
 
+  // ---- presence signals (best-effort, never throw) --------------------------
+  // Heuristic: a default LinkedIn vanity slug ends with a long alphanumeric/hex
+  // suffix (e.g. /in/jane-doe-8b3f21a9). A clean slug (/in/janedoe) is custom.
+  function detectCustomUrl(pathname) {
+    try {
+      const m = String(pathname || '').match(/\/in\/([^/]+)/i);
+      if (!m) return { yes: false, reason: 'no /in/ slug' };
+      const slug = decodeURIComponent(m[1]).replace(/\/+$/, '');
+      const last = slug.split('-').pop() || '';
+      const looksHex = /^[0-9a-f]{6,}$/i.test(last) && /\d/.test(last);
+      const looksAlnumId = /^[a-z0-9]{8,}$/i.test(last) && /\d/.test(last) && /[a-z]/i.test(last);
+      if (looksHex || looksAlnumId) return { yes: false, reason: `default suffix "${last}"` };
+      return { yes: true, reason: `clean slug "${slug}"` };
+    } catch {
+      return { yes: false, reason: 'unreadable' };
+    }
+  }
+
+  function detectLocation(topCard) {
+    try {
+      if (!topCard) return '(none)';
+      // location is usually a small muted line under the headline; not the
+      // headline (.text-body-medium) itself.
+      const cands = Array.from(topCard.querySelectorAll('.text-body-small, span.text-body-small'));
+      for (const el of cands) {
+        const t = clean(el.innerText || '');
+        if (!t) continue;
+        const low = t.toLowerCase();
+        if (/contact info|connection|follower|mutual|\d|message|·/.test(low)) continue;
+        if (t.length > 2 && t.length < 80 && /[a-z]/i.test(t)) return t;
+      }
+      return '(none)';
+    } catch {
+      return '(none)';
+    }
+  }
+
+  function detectPhoto(topCard) {
+    try {
+      const scope = topCard || getMain();
+      const imgs = Array.from(scope.querySelectorAll('img'));
+      for (const img of imgs) {
+        const src = (img.getAttribute('src') || '').toLowerCase();
+        const alt = (img.getAttribute('alt') || '').toLowerCase();
+        const cls = (img.getAttribute('class') || '').toLowerCase();
+        const isAvatar = cls.includes('profile') || cls.includes('pv-top-card') || /photo|avatar/.test(cls) || alt;
+        if (!isAvatar) continue;
+        const isGhost = src.includes('ghost') || src.includes('default') || src.startsWith('data:') || !src;
+        if (!isGhost) return 'present';
+      }
+      return 'missing/default';
+    } catch {
+      return 'missing/default';
+    }
+  }
+
+  function detectBanner(topCard) {
+    try {
+      const scope = topCard || getMain();
+      // background/cover image — LinkedIn default is a plain blue gradient with
+      // no real <img src>. Look for a banner-ish img with a real src.
+      const imgs = Array.from(scope.querySelectorAll('img'));
+      for (const img of imgs) {
+        const src = (img.getAttribute('src') || '').toLowerCase();
+        const cls = (img.getAttribute('class') || '').toLowerCase();
+        if (/cover|background|banner|profile-background/.test(cls) && src && !src.startsWith('data:')) {
+          return 'present';
+        }
+      }
+      return 'default/none';
+    } catch {
+      return 'default/none';
+    }
+  }
+
+  function detectLinks(topCard) {
+    const hrefs = new Set();
+    const collect = (scope) => {
+      if (!scope) return;
+      try {
+        Array.from(scope.querySelectorAll('a[href]')).forEach((a) => {
+          const href = a.getAttribute('href') || '';
+          if (!/^https?:\/\//i.test(href)) return;
+          if (/linkedin\.com/i.test(href)) return; // skip internal nav/UI
+          hrefs.add(href.split('?')[0]);
+        });
+      } catch {
+        /* ignore */
+      }
+    };
+    collect(topCard);
+    collect(resolveSection(SECTIONS.about));
+    collect(resolveSection(EXTRA.featured));
+    const arr = Array.from(hrefs);
+    return arr.length ? arr.join(', ') : '(none)';
+  }
+
+  function detectActivity() {
+    try {
+      const node = resolveSection(SECTIONS.activity);
+      if (!node) return 'none';
+      const t = clean(node.innerText || '');
+      // strip the heading word; if real post/repost content remains, present.
+      const body = t.replace(/^activity[:\s]*/i, '').trim();
+      if (wordCount(body) > 8) return 'present';
+      return 'none';
+    } catch {
+      return 'none';
+    }
+  }
+
+  // presence of a resolvable section (Featured, Licenses/Certifications, …)
+  function detectSection(def) {
+    try {
+      const node = resolveSection(def);
+      if (!node) return 'none';
+      return wordCount(clean(node.innerText || '')) > 4 ? 'present' : 'none';
+    } catch {
+      return 'none';
+    }
+  }
+
+  function profileSignals(topCard) {
+    const lines = ['--- Profile signals (from page) ---'];
+    const pathname = (location && location.pathname) || '(unknown)';
+    lines.push(`Profile URL: ${pathname}`);
+    const cu = detectCustomUrl(pathname);
+    lines.push(`Custom URL: ${cu.yes ? 'yes' : 'no'} (${cu.reason})`);
+    lines.push(`Location: ${detectLocation(topCard)}`);
+    lines.push(`Profile photo: ${detectPhoto(topCard)}`);
+    lines.push(`Banner image: ${detectBanner(topCard)}`);
+    const links = detectLinks(topCard);
+    lines.push(`Links found: ${links}`);
+    // Contact info isn't in the page DOM (it's behind a modal we don't open),
+    // so proxy it from any external links/website surfaced on the profile.
+    lines.push(`Contact info: ${links === '(none)' ? '(none)' : 'present (links/website)'}`);
+    lines.push(`Featured section: ${detectSection(EXTRA.featured)}`);
+    lines.push(`Certifications: ${detectSection(EXTRA.licenses)}`);
+    lines.push(`Activity: ${detectActivity()}`);
+    return lines.join('\n');
+  }
+
   // ---- extraction -----------------------------------------------------------
   function extractProfile() {
     const nodes = {};
@@ -124,6 +267,16 @@
       const mainText = clean(getMain().innerText || '');
       if (wordCount(mainText) > wordCount(profileText)) profileText = mainText;
     }
+
+    // Always append the labeled presence-signal block (even when text is short)
+    // so the server can map completeness checks.
+    let signals = '';
+    try {
+      signals = profileSignals(topCard);
+    } catch {
+      signals = '--- Profile signals (from page) ---';
+    }
+    profileText = `${profileText}\n\n${signals}`.trim();
 
     return { profileText, nodes };
   }
@@ -241,13 +394,15 @@
     if (!d.head || !d.head.isConnected) return setHidden(d, true);
     const r = d.head.getBoundingClientRect();
     if (r.width === 0 && r.height === 0) return setHidden(d, true);
+    const vh = window.innerHeight;
+    if (r.bottom < 8 || r.top > vh - 8) return setHidden(d, true);
     setHidden(d, false);
 
     const vw = window.innerWidth;
     const cx = r.left + r.width / 2;
-    const cy = r.top + r.height / 2;
-    const rx = r.width / 2 + 14;
-    const ry = r.height / 2 + 12;
+    const cy = r.top + Math.min(r.height / 2, 30);
+    const ry = Math.min(r.height / 2 + 12, 46);
+    const rx = Math.min(r.width / 2 + 14, 200);
 
     [d.e1, d.e2].forEach((e, k) => {
       e.setAttribute('cx', cx + srand(d.seed + 1 + k) * 6);
@@ -257,13 +412,26 @@
       e.setAttribute('transform', `rotate(${-5 + srand(d.seed + 9 + k) * 8} ${cx} ${cy})`);
     });
 
-    let side = 'right';
-    let x = r.right + 34;
-    if (x + CALLOUT_W > vw - 14) {
+    const PAD = 16;
+    const card = d.section ? d.section.getBoundingClientRect() : r;
+    const leftGutter = card.left;
+    const rightGutter = vw - card.right;
+    let side, x;
+    if (leftGutter >= CALLOUT_W + PAD * 2 && leftGutter >= rightGutter) {
       side = 'left';
-      x = r.left - CALLOUT_W - 34;
+      x = card.left - CALLOUT_W - PAD;
+    } else if (rightGutter >= CALLOUT_W + PAD * 2) {
+      side = 'right';
+      x = card.right + PAD;
+    } else if (leftGutter >= CALLOUT_W + PAD * 2) {
+      side = 'left';
+      x = card.left - CALLOUT_W - PAD;
+    } else {
+      // no real gutter (narrow window): hug whichever margin is wider
+      side = rightGutter >= leftGutter ? 'right' : 'left';
+      x = side === 'right' ? vw - CALLOUT_W - PAD : PAD;
     }
-    x = Math.max(14, Math.min(x, vw - CALLOUT_W - 14));
+    x = Math.max(8, Math.min(x, vw - CALLOUT_W - 8));
     const y = Math.max(8, r.top - 6);
     d.callout.style.left = `${x}px`;
     d.callout.style.top = `${y}px`;
@@ -278,18 +446,6 @@
     d.shaft.setAttribute('d', ap.shaft);
     d.ah1.setAttribute('d', ap.h1);
     d.ah2.setAttribute('d', ap.h2);
-
-    if (d.scribble) {
-      const sec = d.section?.getBoundingClientRect();
-      const sy = r.bottom + 10;
-      const sh = sec ? Math.min(120, sec.bottom - sy - 10) : 0;
-      if (sec && sh > 18) {
-        d.scribble.style.display = '';
-        d.scribble.setAttribute('d', scribblePath(sec.left + 14, sy, Math.min(sec.width - 28, 520), sh, d.seed + 50));
-      } else {
-        d.scribble.style.display = 'none';
-      }
-    }
   }
 
   function repositionAll() {
@@ -317,7 +473,9 @@
       const node = nodes[key];
       const roastText = data.sections?.[key]?.roast;
       if (!node || !roastText) return;
-      const head = key === 'headline' ? node.querySelector('h1') || node : node.querySelector('h2') || node;
+      const head = key === 'headline'
+        ? node.querySelector('.text-body-medium') || node.querySelector('h1') || node
+        : node.querySelector('h2') || node;
       if (!head) return;
 
       const base = shown * STAGGER;
@@ -330,11 +488,6 @@
       const ah1 = svgEl('path', { class: 'ats-stroke' });
       const ah2 = svgEl('path', { class: 'ats-stroke' });
       svg.append(e1, e2, shaft, ah1, ah2);
-      let scribble = null;
-      if (key === 'about' || key === 'experience') {
-        scribble = svgEl('path', { class: 'ats-stroke ats-scribble' });
-        svg.append(scribble);
-      }
 
       const callout = document.createElement('div');
       callout.className = 'ats-hand-callout';
@@ -361,7 +514,6 @@
         shaft,
         ah1,
         ah2,
-        scribble,
         seed,
         delays: { circle: base, arrow: base + 200, scribble: base + 120 },
       });
@@ -375,7 +527,6 @@
       animateStroke(d.shaft, d.delays.arrow, 320);
       animateStroke(d.ah1, d.delays.arrow + 280, 140);
       animateStroke(d.ah2, d.delays.arrow + 280, 140);
-      if (d.scribble) animateStroke(d.scribble, d.delays.scribble, 520);
     });
 
     return shown;
@@ -392,6 +543,45 @@
   function chips(words, cls) {
     if (!words || !words.length) return '<span class="ats-note-empty">—</span>';
     return words.map((w) => `<span class="ats-note-chip ${cls}">${escapeHtml(w)}</span>`).join('');
+  }
+
+  const COMPLETENESS_CHECKS = [
+    ['custom_url', 'Custom URL'],
+    ['location', 'Location'],
+    ['profile_photo', 'Profile photo'],
+    ['banner', 'Banner image'],
+    ['links', 'Links'],
+    ['contact_info', 'Contact info'],
+    ['featured', 'Featured'],
+    ['certifications', 'Certifications'],
+  ];
+
+  function dotClass(status) {
+    if (status === 'good') return 'dot-good';
+    if (status === 'warn') return 'dot-warn';
+    return 'dot-bad';
+  }
+
+  // Renders the completeness block; returns '' if data is missing (old server).
+  function completenessBlock(completeness) {
+    if (!completeness || typeof completeness !== 'object') return '';
+    const checks = completeness.checks || {};
+    const pct = Math.max(0, Math.min(100, Math.round(Number(completeness.percent) || 0)));
+    const rows = COMPLETENESS_CHECKS.map(([key, label]) => {
+      const c = checks[key] || {};
+      const status = c.status === 'good' || c.status === 'warn' ? c.status : 'bad';
+      const note = c.note || '';
+      return `
+        <li class="ats-comp-row">
+          <span class="ats-comp-dot ${dotClass(status)}"></span>
+          <span class="ats-comp-text"><b>${escapeHtml(label)}</b>${note ? ` — ${escapeHtml(note)}` : ''}</span>
+        </li>`;
+    }).join('');
+    return `
+      <div class="ats-note-block ats-comp-block">
+        <h4>✅ Profile completeness: ${pct}%</h4>
+        <ul class="ats-comp-list">${rows}</ul>
+      </div>`;
   }
 
   function renderNote(data, delay = 0) {
@@ -417,6 +607,7 @@
         <h4>🗯️ Buzzwords</h4>
         <div class="ats-note-chips">${chips(data.buzzwords_found, 'chip-buzz')}</div>
       </div>
+      ${completenessBlock(data.completeness)}
       <button class="ats-note-clear">Clear markup</button>
     `;
     document.body.appendChild(noteEl);
@@ -474,7 +665,14 @@
   }
 
   // ---- trigger button + lifecycle ------------------------------------------
+  // The script now runs on every LinkedIn page (so it survives SPA navigation),
+  // so the button is gated to actual profile pages — /in/<slug>.
+  function isProfilePage() {
+    return /^\/in\/[^/]+/.test(location.pathname);
+  }
+
   function injectButton() {
+    if (!isProfilePage()) return;
     if (document.getElementById('ats-roast-fab')) return;
     const btn = document.createElement('button');
     btn.id = 'ats-roast-fab';
@@ -484,17 +682,22 @@
     document.body.appendChild(btn);
   }
 
+  function removeButton() {
+    document.getElementById('ats-roast-fab')?.remove();
+  }
+
   // capture:true catches scroll from LinkedIn's inner scroll containers too
   window.addEventListener('scroll', onReposition, true);
   window.addEventListener('resize', onReposition);
 
-  injectButton();
+  if (isProfilePage()) injectButton();
   let lastPath = location.pathname;
   setInterval(() => {
     if (location.pathname !== lastPath) {
       lastPath = location.pathname;
       clearAnnotations();
-      injectButton();
+      if (isProfilePage()) injectButton();
+      else removeButton();
     }
   }, 1500);
 })();

@@ -38,7 +38,19 @@ const SECTION = {
   additionalProperties: false,
 };
 
-const ROAST_SCHEMA = {
+// One profile-completeness signal: a traffic-light status plus a snarky note.
+// enum is supported by structured outputs; minLength is not.
+const CHECK = {
+  type: 'object',
+  properties: {
+    status: { type: 'string', enum: ['good', 'warn', 'bad'] },
+    note: { type: 'string' },
+  },
+  required: ['status', 'note'],
+  additionalProperties: false,
+};
+
+export const ROAST_SCHEMA = {
   type: 'object',
   properties: {
     overall_roast: { type: 'string' },
@@ -52,11 +64,56 @@ const ROAST_SCHEMA = {
         headline: SECTION,
         about: SECTION,
         experience: SECTION,
+        projects: SECTION,
+        activity: SECTION,
         skills: SECTION,
         education: SECTION,
         recommendations: SECTION,
       },
-      required: ['headline', 'about', 'experience', 'skills', 'education', 'recommendations'],
+      required: [
+        'headline',
+        'about',
+        'experience',
+        'projects',
+        'activity',
+        'skills',
+        'education',
+        'recommendations',
+      ],
+      additionalProperties: false,
+    },
+    // Profile-completeness audit: presence/quality of the "is this profile even
+    // finished?" signals, distinct from the recruiter callback `score`.
+    completeness: {
+      type: 'object',
+      properties: {
+        percent: { type: 'integer' }, // overall completeness estimate 0-100
+        checks: {
+          type: 'object',
+          properties: {
+            custom_url: CHECK,
+            location: CHECK,
+            profile_photo: CHECK,
+            banner: CHECK,
+            links: CHECK,
+            contact_info: CHECK,
+            featured: CHECK,
+            certifications: CHECK,
+          },
+          required: [
+            'custom_url',
+            'location',
+            'profile_photo',
+            'banner',
+            'links',
+            'contact_info',
+            'featured',
+            'certifications',
+          ],
+          additionalProperties: false,
+        },
+      },
+      required: ['percent', 'checks'],
       additionalProperties: false,
     },
   },
@@ -67,6 +124,7 @@ const ROAST_SCHEMA = {
     'buzzwords_found',
     'red_flags',
     'sections',
+    'completeness',
   ],
   additionalProperties: false,
 };
@@ -75,6 +133,9 @@ const ROAST_SCHEMA = {
 const SYSTEM_PROMPT = `You are a blunt, battle-hardened senior tech recruiter doing a 10-second scan of a LinkedIn profile — the brutal first impression a real recruiter forms before deciding whether to reach out or move on. This is DEAD BRUTAL mode, the only mode. Roast the profile the way a recruiter actually reacts: cringe at clichés, eye-roll at buzzwords, side-eye vague titles, and call out every missed chance to show real impact. Be savagely funny but genuinely useful and specific — cite the profile's actual words.
 
 The input is the visible text scraped from a LinkedIn profile page. Ignore page chrome (nav, ads, "People you may know", "Who viewed your profile") and judge only the person.
+
+The user message MAY include a labeled "Profile signals" block extracted from the live page, with lines like:
+\`Custom URL: no (auto-generated slug /in/jane-doe-8b3f21a9)\`, \`Location: (none)\`, \`Profile photo: present\`, \`Banner image: default/none\`, \`Links found: github.com/x (Featured)\`, \`Contact info: (none)\`, \`Activity: present\`, \`Certifications: 2\`. Use that block to fill \`completeness\`. If the "Profile signals" block is ABSENT (e.g. plain pasted text), you cannot observe these presence-only signals.
 
 React like a recruiter to:
 - Headline clichés and identity crises ("Developer | Writer | Dreamer" → pick a lane).
@@ -92,7 +153,17 @@ Return:
 - score_label: a snarky band — 0-30 'Instant skip', 31-55 'Recruiter ghosts you', 56-74 'Maybe, on a slow day', 75-89 'Worth a message', 90-100 'Recruiters are fighting over you (suspicious)'.
 - red_flags: specific things that make a recruiter hesitate or bounce (vague title, no impact, desperation vibes, cringe posts, certificate-collecting, etc.).
 - buzzwords_found: empty cliché phrases in the profile a recruiter is tired of seeing.
-- sections: for headline, about, experience, skills, education, recommendations — each gets a SHORT, punchy, hand-scrawled recruiter burn like a red-pen margin note ("BUZZWORD SOUP!", "PICK A LANE!", "SHOW IMPACT, NOT VIEWS!", "CLICHE ALERT!", "STILL LEARNING? SHOW, DON'T TELL!") plus 2-3 concrete fixes. Keep each section roast to a few words — it gets scrawled onto the page. For any missing section, say so and what a recruiter reads into the gap.
+- sections: for headline, about, experience, projects, activity, skills, education, recommendations — each gets a SHORT, punchy, hand-scrawled recruiter burn like a red-pen margin note ("BUZZWORD SOUP!", "PICK A LANE!", "SHOW IMPACT, NOT VIEWS!", "CLICHE ALERT!", "STILL LEARNING? SHOW, DON'T TELL!") plus 2-3 concrete fixes. Keep each section roast to a few words — it gets scrawled onto the page. For any missing section, say so and what a recruiter reads into the gap. For projects: roast portfolio gaps, vague side-project blurbs, or "no projects to show". For activity: roast cringe hot takes, reposts, engagement-bait, or a dead/empty feed — a recruiter reads the activity tab.
+- completeness: a profile-completeness audit. \`percent\` is an integer 0-100 estimate of how complete/finished the profile looks overall — this is DISTINCT from the recruiter callback \`score\`. \`checks\` has exactly eight keys, each { status: "good" | "warn" | "bad", note: short snarky line }. Map the "Profile signals" block to them:
+  - custom_url: good if a clean vanity URL; bad if an auto-generated slug like /in/jane-doe-8b3f21a9.
+  - location: good if present; bad/warn if missing — recruiters filter by location.
+  - profile_photo: good if present; bad if missing (faceless = skip).
+  - banner: good if a real custom banner; warn/bad if the default blue/none.
+  - links: good if real links (portfolio/github); warn/bad if none.
+  - contact_info: good if present; warn/bad if none.
+  - featured: good if a Featured section with real proof of work; warn/bad if empty.
+  - certifications: good if relevant certs; warn if cert-collecting with nothing built; bad if none where they'd matter.
+  If the "Profile signals" block is ABSENT, set the presence-only checks (custom_url, location, profile_photo, banner, links, contact_info, featured) to status "warn" with the note "Can't see this in pasted text — use the browser extension."; judge certifications from the pasted text if visible.
 
 Return ONLY a single valid JSON object matching the required schema. No markdown code fences, no commentary before or after the JSON.`;
 

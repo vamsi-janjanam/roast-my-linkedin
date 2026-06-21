@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { countWords, scoreBand, titleCase } from './helpers'
+import { countWords, scoreBand, statusTone, titleCase } from './helpers'
 import { compareRoasts } from './compare'
 
 // Single source of truth for the /api/roast call. Returns {data, error}.
@@ -32,10 +32,24 @@ const SECTION_ORDER = [
   'headline',
   'about',
   'experience',
+  'projects',
+  'activity',
   'skills',
   'education',
   'recommendations',
 ]
+
+// Human labels for the completeness checks (keyed by check name).
+const COMPLETENESS_LABELS = {
+  custom_url: 'Custom URL',
+  location: 'Location',
+  profile_photo: 'Profile photo',
+  banner: 'Banner',
+  links: 'Links',
+  contact_info: 'Contact info',
+  featured: 'Featured',
+  certifications: 'Certifications',
+}
 
 const LOADING_MESSAGES = [
   'Pulling your profile…',
@@ -241,6 +255,57 @@ function SectionBreakdown({ sections }) {
 }
 
 // ---------------------------------------------------------------------------
+// CompletenessPanel
+// ---------------------------------------------------------------------------
+function CompletenessPanel({ completeness }) {
+  if (!completeness) return null
+  const percent = Math.max(0, Math.min(100, Number(completeness.percent) || 0))
+  const checks = completeness.checks ?? {}
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <p className="font-mono text-xs uppercase tracking-widest text-paper/50">
+          Profile completeness
+        </p>
+        <span className="font-display text-2xl text-paper">{percent}%</span>
+      </div>
+
+      <div className="mb-5 h-2 w-full overflow-hidden rounded-full bg-white/10">
+        <div
+          className="h-full rounded-full bg-cool"
+          style={{ width: `${percent}%`, transition: 'width 0.8s ease' }}
+        />
+      </div>
+
+      <ul className="flex flex-col gap-2">
+        {Object.entries(checks).map(([key, check]) => {
+          const c = check ?? {}
+          const tone = statusTone(c.status)
+          return (
+            <li
+              key={key}
+              className="flex items-start gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm"
+            >
+              <span
+                className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${tone.dot}`}
+                aria-hidden="true"
+              />
+              <span className="flex flex-col">
+                <span className={`font-mono text-xs uppercase tracking-widest ${tone.text}`}>
+                  {COMPLETENESS_LABELS[key] || titleCase(key)}
+                </span>
+                <span className="text-paper/80">{c.note}</span>
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // ShareBar
 // ---------------------------------------------------------------------------
 function ShareBar({ result }) {
@@ -348,6 +413,10 @@ function Results({ result, onReset, onImprove }) {
         empty="No glaring red flags. Suspicious."
         tone="cool"
       />
+
+      {result.completeness && (
+        <CompletenessPanel completeness={result.completeness} />
+      )}
 
       <SectionBreakdown sections={result.sections} />
 

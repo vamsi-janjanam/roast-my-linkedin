@@ -13,3 +13,14 @@ export const scoreBand = (score) => {
   if (safe < 75) return { color: '#FBBF24', text: 'text-amber-400' }
   return { color: '#3B82F6', text: 'text-cool' }
 }
+
+// Maps a completeness check status to Tailwind classes for a status dot/badge.
+// Unknown/missing statuses fall back to 'warn' (amber).
+export const statusTone = (status) => {
+  const tones = {
+    good: { dot: 'bg-cool', text: 'text-cool', border: 'border-cool/50' },
+    warn: { dot: 'bg-amber-400', text: 'text-amber-400', border: 'border-amber-400/50' },
+    bad: { dot: 'bg-flame', text: 'text-flame', border: 'border-flame/50' },
+  }
+  return tones[status] || tones.warn
+}

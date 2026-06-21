@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseRoastJSON, wordCount, isTooShort } from './index.js';
+import { parseRoastJSON, wordCount, isTooShort, ROAST_SCHEMA } from './index.js';
 
 describe('parseRoastJSON', () => {
   it('parses clean JSON', () => {
@@ -52,5 +52,66 @@ describe('isTooShort (40-word threshold)', () => {
   it('is false at 40 words (boundary, exactly the threshold)', () => {
     expect(wordCount(words(40))).toBe(40);
     expect(isTooShort(words(40))).toBe(false);
+  });
+});
+
+describe('ROAST_SCHEMA — projects/activity sections', () => {
+  const sections = ROAST_SCHEMA.properties.sections;
+
+  it('declares projects and activity sections', () => {
+    expect(sections.properties.projects).toBeDefined();
+    expect(sections.properties.activity).toBeDefined();
+  });
+
+  it('requires projects and activity', () => {
+    expect(sections.required).toContain('projects');
+    expect(sections.required).toContain('activity');
+  });
+});
+
+describe('ROAST_SCHEMA — completeness', () => {
+  const completeness = ROAST_SCHEMA.properties.completeness;
+  const EXPECTED_CHECKS = [
+    'custom_url',
+    'location',
+    'profile_photo',
+    'banner',
+    'links',
+    'contact_info',
+    'featured',
+    'certifications',
+  ];
+
+  it('is declared in top-level properties and required', () => {
+    expect(completeness).toBeDefined();
+    expect(ROAST_SCHEMA.required).toContain('completeness');
+  });
+
+  it('has an integer percent and a checks object', () => {
+    expect(completeness.properties.percent.type).toBe('integer');
+    expect(completeness.required).toEqual(expect.arrayContaining(['percent', 'checks']));
+  });
+
+  it('declares all 8 expected checks, each a good/warn/bad CHECK', () => {
+    const checks = completeness.properties.checks;
+    expect(Object.keys(checks.properties).sort()).toEqual([...EXPECTED_CHECKS].sort());
+    for (const key of EXPECTED_CHECKS) {
+      const check = checks.properties[key];
+      expect(check.properties.status.enum).toEqual(['good', 'warn', 'bad']);
+      expect(check.required).toEqual(['status', 'note']);
+      expect(check.additionalProperties).toBe(false);
+    }
+    expect(checks.required).toEqual(expect.arrayContaining(EXPECTED_CHECKS));
+    expect(checks.additionalProperties).toBe(false);
+  });
+
+  it('every object in the completeness subtree has additionalProperties:false', () => {
+    const walk = (node) => {
+      if (node && typeof node === 'object') {
+        if (node.type === 'object') expect(node.additionalProperties).toBe(false);
+        for (const value of Object.values(node)) walk(value);
+      }
+    };
+    walk(completeness);
   });
 });
