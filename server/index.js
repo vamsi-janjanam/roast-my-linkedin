@@ -13,7 +13,16 @@ const PORT = process.env.PORT || 8787;
 // The SDK reads ANTHROPIC_API_KEY from env automatically. The key stays
 // server-side and is never sent to the browser / extension.
 const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);
-const client = new Anthropic();
+
+// Construct the client lazily. `new Anthropic()` throws at construction when the
+// key is missing, which would crash startup and make the graceful
+// `missing_api_key` 500 handler below dead code. Build it only on the first
+// request, once we've confirmed the key exists.
+let client;
+function getClient() {
+  if (!client) client = new Anthropic();
+  return client;
+}
 
 // ---- Structured output schema ------------------------------------------------
 // Structured outputs require additionalProperties:false and every property in
@@ -87,9 +96,22 @@ Return:
 
 Return ONLY a single valid JSON object matching the required schema. No markdown code fences, no commentary before or after the JSON.`;
 
+// Count the whitespace-delimited words in a profile blob. Exported pure helper
+// so the route's "too short" threshold is testable without booting the server.
+export function wordCount(text) {
+  const trimmed = (text ?? '').trim();
+  if (trimmed.length === 0) return 0;
+  return trimmed.split(/\s+/).length;
+}
+
+// A profile with fewer than 40 words doesn't give a recruiter enough to roast.
+export function isTooShort(profileText) {
+  return wordCount(profileText) < 40;
+}
+
 // Tolerant parse: structured outputs should return clean JSON, but if the model
 // ever wraps it in ```fences``` or adds stray prose, recover the JSON object.
-function parseRoastJSON(text) {
+export function parseRoastJSON(text) {
   try {
     return JSON.parse(text);
   } catch {
@@ -122,8 +144,7 @@ app.post('/api/roast', async (req, res) => {
     });
   }
 
-  const wordCount = profileText.trim().split(/\s+/).length;
-  if (wordCount < 40) {
+  if (isTooShort(profileText)) {
     return res.status(400).json({
       error: {
         code: 'input_too_short',
@@ -133,7 +154,7 @@ app.post('/api/roast', async (req, res) => {
   }
 
   try {
-    const response = await client.messages.create(
+    const response = await getClient().messages.create(
       {
         model: 'claude-sonnet-4-6',
         max_tokens: 4096,
@@ -144,6 +165,19 @@ app.post('/api/roast', async (req, res) => {
       },
       { timeout: 60000 },
     );
+
+    // Only parse JSON on a normal completion. A refusal or a truncated
+    // (max_tokens) response won't contain valid, complete schema JSON.
+    if (response.stop_reason === 'refusal') {
+      return res.status(502).json({
+        error: { code: 'api_error', message: 'Claude refused to roast this one.' },
+      });
+    }
+    if (response.stop_reason === 'max_tokens') {
+      return res.status(502).json({
+        error: { code: 'api_error', message: 'The roast got cut off. Try again.' },
+      });
+    }
 
     const textBlock = response.content.find((b) => b.type === 'text');
     if (!textBlock) throw new Error('Model returned no text content');
@@ -180,6 +214,11 @@ if (fs.existsSync('dist')) {
   });
 }
 
-app.listen(PORT, () => {
-  console.log(`LinkedIn ATS Roaster server listening on http://localhost:${PORT}`);
-});
+// Don't bind a port when imported by the test runner — the exported helpers
+// are unit-tested without booting the HTTP server. `node server/index.js`
+// (no VITEST env) starts as before.
+if (!process.env.VITEST) {
+  app.listen(PORT, () => {
+    console.log(`LinkedIn Recruiter Roaster server listening on http://localhost:${PORT}`);
+  });
+}

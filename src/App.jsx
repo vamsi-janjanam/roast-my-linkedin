@@ -1,4 +1,32 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { countWords, scoreBand, titleCase } from './helpers'
+import { compareRoasts } from './compare'
+
+// Single source of truth for the /api/roast call. Returns {data, error}.
+async function roastText(text) {
+  try {
+    const res = await fetch('/api/roast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profileText: text.trim() }),
+    })
+
+    let data = null
+    try {
+      data = await res.json()
+    } catch {
+      data = null
+    }
+
+    if (!res.ok) {
+      return { data: null, error: data?.error?.message || 'Something went wrong. Try again.' }
+    }
+
+    return { data, error: '' }
+  } catch {
+    return { data: null, error: 'Something went wrong. Try again.' }
+  }
+}
 
 const SECTION_ORDER = [
   'headline',
@@ -11,16 +39,12 @@ const SECTION_ORDER = [
 
 const LOADING_MESSAGES = [
   'Pulling your profile…',
-  'Feeding it to the ATS…',
-  'Counting missing keywords…',
+  'Forming a 10-second first impression…',
+  'Counting the buzzwords…',
   'Looking for an actual metric…',
   'Laughing at "results-driven"…',
   'Consulting the rejection pile…',
 ]
-
-const titleCase = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '')
-
-const countWords = (t) => (t.trim() ? t.trim().split(/\s+/).length : 0)
 
 // ---------------------------------------------------------------------------
 // LoadingState
@@ -94,14 +118,7 @@ function RoastCard({ text }) {
 // ---------------------------------------------------------------------------
 function ScoreMeter({ score, label }) {
   const safe = Math.max(0, Math.min(100, Number(score) || 0))
-  const band =
-    safe < 31
-      ? { color: '#FF5C1A', text: 'text-flame' }
-      : safe < 56
-        ? { color: '#FB923C', text: 'text-orange-400' }
-        : safe < 75
-          ? { color: '#FBBF24', text: 'text-amber-400' }
-          : { color: '#3B82F6', text: 'text-cool' }
+  const band = scoreBand(safe)
 
   const radius = 52
   const circ = 2 * Math.PI * radius
@@ -310,7 +327,7 @@ function ShareBar({ result }) {
 // ---------------------------------------------------------------------------
 // Results
 // ---------------------------------------------------------------------------
-function Results({ result, onReset }) {
+function Results({ result, onReset, onImprove }) {
   return (
     <div className="flex flex-col gap-6">
       <RoastCard text={result.overall_roast} />
@@ -336,13 +353,183 @@ function Results({ result, onReset }) {
 
       <ShareBar result={result} />
 
-      <div className="flex justify-center pt-2">
+      <div className="flex flex-wrap justify-center gap-3 pt-2">
+        <button
+          type="button"
+          onClick={onImprove}
+          className="rounded-xl border border-cool bg-cool/15 px-6 py-3 font-display text-lg text-cool transition hover:bg-cool/25"
+        >
+          Improve &amp; re-roast →
+        </button>
         <button
           type="button"
           onClick={onReset}
           className="rounded-xl border border-flame bg-flame px-6 py-3 font-display text-lg text-ink transition hover:bg-flame/90"
         >
           Roast another
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// EditView — edit the text behind the current roast, then re-roast
+// ---------------------------------------------------------------------------
+function EditView({ baselineResult, value, onChange, onReRoast, onCancel }) {
+  const words = countWords(value)
+  const tooShort = words < 40
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="rounded-2xl border border-cool/40 bg-gradient-to-b from-cool/10 to-transparent p-6 sm:p-8">
+        <p className="mb-2 font-mono text-xs uppercase tracking-[0.2em] text-cool">
+          ✍️ Improve your profile
+        </p>
+        <p className="font-display text-xl text-paper sm:text-2xl">
+          Current recruiter score: {baselineResult.score ?? 0}/100 — beat it.
+        </p>
+      </div>
+
+      <div>
+        <label
+          htmlFor="edit-profile"
+          className="mb-2 block font-mono text-xs uppercase tracking-widest text-paper/50"
+        >
+          Edit your LinkedIn text
+        </label>
+        <textarea
+          id="edit-profile"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          rows={14}
+          className="w-full resize-y rounded-2xl border border-white/15 bg-white/5 p-4 font-mono text-sm text-paper placeholder:text-paper/30 focus:border-cool focus:outline-none"
+        />
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <span className={tooShort ? 'text-flame' : 'text-paper/50'}>
+            {tooShort
+              ? 'Needs more — paste at least your headline + About + Experience.'
+              : ' '}
+          </span>
+          <span className="font-mono text-paper/50">
+            {words} word{words === 1 ? '' : 's'}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap justify-center gap-3 pt-2">
+        <button
+          type="button"
+          onClick={onReRoast}
+          disabled={words < 40}
+          className="rounded-xl border border-cool bg-cool px-6 py-3 font-display text-lg text-ink transition hover:bg-cool/90 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Re-roast 🔥
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-xl border border-white/20 bg-white/5 px-6 py-3 font-display text-lg text-paper transition hover:border-flame hover:text-flame"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// ScoreDelta — before → after with a colored delta
+// ---------------------------------------------------------------------------
+function ScoreDelta({ before, after, delta }) {
+  const positive = delta > 0
+  const deltaStyles = positive ? 'text-cool' : 'text-flame'
+  const sign = delta > 0 ? '+' : ''
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-6 sm:p-8">
+      <p className="mb-4 font-mono text-xs uppercase tracking-[0.2em] text-paper/50">
+        Recruiter score
+      </p>
+      <div className="flex flex-wrap items-end justify-center gap-4 sm:gap-6">
+        <div className="text-center">
+          <p className="font-display text-4xl text-paper/60">{before.score ?? 0}</p>
+          <p className="font-mono text-xs text-paper/40">{before.score_label || '—'}</p>
+        </div>
+        <span className="pb-2 font-display text-3xl text-paper/40">→</span>
+        <div className="text-center">
+          <p className="font-display text-5xl text-paper">{after.score ?? 0}</p>
+          <p className="font-mono text-xs text-paper/50">{after.score_label || '—'}</p>
+        </div>
+        <div className="pb-2 text-center">
+          <span className={`font-display text-3xl ${deltaStyles}`}>
+            {sign}
+            {delta}
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// ComparisonView — what changed between before and after
+// ---------------------------------------------------------------------------
+function ComparisonView({ before, after, comparison, onImproveAgain, onStartOver }) {
+  return (
+    <div className="flex flex-col gap-6">
+      <ScoreDelta
+        before={before}
+        after={after}
+        delta={comparison.scoreDelta}
+      />
+
+      <div className="grid gap-6 md:grid-cols-2">
+        <KeywordBadges
+          title="Buzzwords you killed"
+          words={comparison.buzzwordsFixed}
+          empty="none"
+          tone="cool"
+        />
+        <KeywordBadges
+          title="New buzzwords you added"
+          words={comparison.buzzwordsAdded}
+          empty="none"
+          tone="flame"
+        />
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2">
+        <KeywordBadges
+          title="Red flags fixed"
+          words={comparison.redFlagsFixed}
+          empty="none"
+          tone="cool"
+        />
+        <KeywordBadges
+          title="New red flags"
+          words={comparison.redFlagsAdded}
+          empty="none"
+          tone="flame"
+        />
+      </div>
+
+      <RoastCard text={after.overall_roast} />
+
+      <div className="flex flex-wrap justify-center gap-3 pt-2">
+        <button
+          type="button"
+          onClick={onImproveAgain}
+          className="rounded-xl border border-cool bg-cool/15 px-6 py-3 font-display text-lg text-cool transition hover:bg-cool/25"
+        >
+          Improve again →
+        </button>
+        <button
+          type="button"
+          onClick={onStartOver}
+          className="rounded-xl border border-flame bg-flame px-6 py-3 font-display text-lg text-ink transition hover:bg-flame/90"
+        >
+          Start over
         </button>
       </div>
     </div>
@@ -358,6 +545,15 @@ export default function App() {
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
 
+  // Before & After flow state.
+  // view: 'results' | 'edit' | 'compare' (only meaningful once `result` exists)
+  const [view, setView] = useState('results')
+  const [baselineResult, setBaselineResult] = useState(null)
+  const [baselineText, setBaselineText] = useState('')
+  const [editText, setEditText] = useState('')
+  const [afterResult, setAfterResult] = useState(null)
+  const [comparison, setComparison] = useState(null)
+
   const words = countWords(profileText)
   const tooShort = words > 0 && words < 40
 
@@ -365,36 +561,68 @@ export default function App() {
     if (loading || words < 40) return
     setError('')
     setLoading(true)
-    try {
-      const res = await fetch('/api/roast', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profileText: profileText.trim() }),
-      })
-
-      let data = null
-      try {
-        data = await res.json()
-      } catch {
-        data = null
-      }
-
-      if (!res.ok) {
-        setError(data?.error?.message || 'Something went wrong. Try again.')
-        return
-      }
-
-      setResult(data)
-    } catch {
-      setError('Something went wrong. Try again.')
-    } finally {
-      setLoading(false)
+    const { data, error: err } = await roastText(profileText)
+    setLoading(false)
+    if (err) {
+      setError(err)
+      return
     }
+    // Capture the exact text that produced this roast as the baseline.
+    setResult(data)
+    setBaselineResult(data)
+    setBaselineText(profileText.trim())
+    setView('results')
   }
 
   const handleReset = () => {
     setResult(null)
     setError('')
+    setView('results')
+    setBaselineResult(null)
+    setBaselineText('')
+    setEditText('')
+    setAfterResult(null)
+    setComparison(null)
+    setProfileText('')
+  }
+
+  const handleImprove = () => {
+    setError('')
+    setEditText(baselineText)
+    setView('edit')
+  }
+
+  const handleCancelEdit = () => {
+    setError('')
+    setView('results')
+  }
+
+  const handleReRoast = async () => {
+    if (loading || countWords(editText) < 40) return
+    setError('')
+    setLoading(true)
+    const { data, error: err } = await roastText(editText)
+    setLoading(false)
+    if (err) {
+      setError(err)
+      return
+    }
+    const cmp = compareRoasts(baselineResult, data)
+    setAfterResult(data)
+    setComparison(cmp)
+    setView('compare')
+  }
+
+  const handleImproveAgain = () => {
+    // The AFTER becomes the new BEFORE; pre-fill editor with the latest text.
+    setError('')
+    setBaselineResult(afterResult)
+    setBaselineText(editText.trim())
+    setResult(afterResult)
+    setEditText(editText.trim())
+    setAfterResult(null)
+    setComparison(null)
+    setView('edit')
   }
 
   return (
@@ -419,8 +647,31 @@ export default function App() {
 
         {loading ? (
           <LoadingState />
+        ) : result && view === 'compare' ? (
+          <ComparisonView
+            before={baselineResult}
+            after={afterResult}
+            comparison={comparison}
+            onImproveAgain={handleImproveAgain}
+            onStartOver={handleReset}
+          />
+        ) : result && view === 'edit' ? (
+          <>
+            <ErrorBanner message={error} onDismiss={() => setError('')} />
+            <EditView
+              baselineResult={baselineResult}
+              value={editText}
+              onChange={setEditText}
+              onReRoast={handleReRoast}
+              onCancel={handleCancelEdit}
+            />
+          </>
         ) : result ? (
-          <Results result={result} onReset={handleReset} />
+          <Results
+            result={result}
+            onReset={handleReset}
+            onImprove={handleImprove}
+          />
         ) : (
           <main className="flex flex-col gap-6">
             <ErrorBanner message={error} onDismiss={() => setError('')} />
@@ -458,7 +709,7 @@ export default function App() {
               disabled={loading || words < 40}
               className="rounded-2xl border border-flame bg-flame px-6 py-4 font-display text-xl font-bold text-ink transition hover:bg-flame/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Roast My ATS 🔥
+              Roast My Profile 🔥
             </button>
           </main>
         )}
